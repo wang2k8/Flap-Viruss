@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>FlappyBird</title>
+    <style>
+        @font-face {
+            font-family: 'kvn-97';
+            src: url('fonts/RasterForgeRegular-JpBgm.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+        #canvas {
+            background-color: #4F5955;
+            border: 2px solid black;
+            display: block;
+            margin: auto;
+            max-width: 90vw;
+            max-height: 90vh;
+            width: auto;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const RAD = Math.PI / 180;
+        const scrn = document.getElementById("canvas");
+        const sctx = scrn.getContext("2d");
+
+        // Điều chỉnh kích thước canvas để phù hợp với màn hình
+        function resizeCanvas() {
+            const aspectRatio = 276 / 414;
+            const maxWidth = window.innerWidth * 0.9;
+            const maxHeight = window.innerHeight * 0.9;
+            let width = maxWidth;
+            let height = width / aspectRatio;
+            if (height > maxHeight) {
+                height = maxHeight;
+                width = height * aspectRatio;
+            }
+            scrn.width = width;
+            scrn.height = height;
+            sctx.scale(width / 276, height / 414);
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        scrn.tabIndex = 1;
+        scrn.addEventListener("click", () => {
+            switch (state.curr) {
+                case state.getReady:
+                    state.curr = state.Play;
+                    SFX.start.play();
+                    SFX.background.play();
+                    break;
+                case state.Play:
+                    bird.flap();
+                    break;
+                case state.gameOver:
+                    state.curr = state.getReady;
+                    bird.speed = 0;
+                    bird.y = 100;
+                    bird.trail = [];
+                    pipe.pipes = [];
+                    UI.score.curr = 0;
+                    SFX.played = false;
+                    break;
+            }
+        });
+
+        scrn.onkeydown = function keyDown(e) {
+            if (e.keyCode == 32 || e.keyCode == 87 || e.keyCode == 38) {
+                switch (state.curr) {
+                    case state.getReady:
+                        state.curr = state.Play;
+                        SFX.start.play();
+                        SFX.background.play();
+                        break;
+                    case state.Play:
+                        bird.flap();
+                        break;
+                    case state.gameOver:
+                        state.curr = state.getReady;
+                        bird.speed = 0;
+                        bird.y = 100;
+                        bird.trail = [];
+                        pipe.pipes = [];
+                        UI.score.curr = 0;
+                        SFX.played = false;
+                        break;
+                }
+            }
+        };
+
+        let frames = 0;
+        let dx = 1.5;
+        const state = {
+            curr: 0,
+            getReady: 0,
+            Play: 1,
+            gameOver: 2,
+        };
+        const SFX = {
+            start: new Audio(),
+            flap: new Audio(),
+            score: new Audio(),
+            hit: new Audio(),
+            die: new Audio(),
+            background: new Audio(),
+            played: false,
+        };
+        const gnd = {
+            sprite: new Image(),
+            x: 0,
+            y: 0,
+            draw: function () {
+                // Vẽ mặt đất
+                this.y = parseFloat(414 - this.sprite.height);
+                sctx.drawImage(this.sprite, this.x, this.y);
+            },
+            update: function () {
+                if (state.curr != state.Play) return;
+                // Cập nhật vị trí mặt đất
+                this.x -= dx;
+                this.x = this.x % (this.sprite.width / 2);
+            },
+        };
+        const bg = {
+            sprite: new Image(),
+            x: 0,
+            y: 0,
+            stars: [],
+            draw: function () {
+                // Vẽ nền và các ngôi sao pixel
+                y = parseFloat(414 - this.sprite.height);
+                sctx.drawImage(this.sprite, this.x, y);
+                sctx.fillStyle = "#ffffff";
+                for (let i = 0; i < 50; i++) {
+                    if (!this.stars[i]) {
+                        this.stars[i] = {
+                            x: Math.random() * 276,
+                            y: Math.random() * (414 - this.sprite.height),
+                            size: Math.random() * 1 + 1
+                        };
+                    }
+                    sctx.fillRect(this.stars[i].x, this.stars[i].y, this.stars[i].size, this.stars[i].size);
+                }
+            },
+        };
+        const pipe = {
+            top: { sprite: new Image() },
+            bot: { sprite: new Image() },
+            gap: 140,
+            moved: true,
+            pipes: [],
+            draw: function () {
+                // Vẽ các ống trên và dưới
+                for (let i = 0; i < this.pipes.length; i++) {
+                    let p = this.pipes[i];
+                    sctx.drawImage(this.top.sprite, p.x, p.y);
+                    sctx.drawImage(
+                        this.bot.sprite,
+                        p.x,
+                        p.y + parseFloat(this.top.sprite.height) + this.gap
+                    );
+                }
+            },
+            update: function () {
+                if (state.curr != state.Play) return;
+                // Tạo ống mới mỗi 150 khung hình
+                if (frames % 150 == 0) {
+                    this.pipes.push({
+                        x: parseFloat(276),
+                        y: -210 * Math.min(Math.random() + 1, 1.8),
+                    });
+                }
+                this.pipes.forEach((pipe) => {
+                    pipe.x -= dx;
+                });
+
+                // Xóa ống khi ra khỏi màn hình
+                if (this.pipes.length && this.pipes[0].x < -this.top.sprite.width) {
+                    this.pipes.shift();
+                    this.moved = true;
+                }
+            },
+        };
+        const bird = {
+            animations: [
+                { sprite: new Image() },
+                { sprite: new Image() },
+                { sprite: new Image() },
+                { sprite: new Image() },
+            ],
+            rotation: 0,
+            x: 50,
+            y: 100,
+            speed: 0,
+            gravity: 0.1,
+            thrust: 3.0,
+            frame: 0,
+            trail: [],
+            draw: function () {
+                // Vẽ hiệu ứng vệt xanh phía sau chim
+                sctx.fillStyle = "#00ff00";
+                for (let i = 0; i < this.trail.length; i++) {
+                    sctx.globalAlpha = this.trail[i].alpha;
+                    sctx.fillRect(this.trail[i].x, this.trail[i].y, 1, 1);
+                    sctx.globalAlpha = 1.0;
+                }
+                // Vẽ chim
+                let h = this.animations[this.frame].sprite.height;
+                let w = this.animations[this.frame].sprite.width;
+                sctx.save();
+                sctx.translate(this.x, this.y);
+                sctx.rotate(this.rotation * RAD);
+                sctx.drawImage(this.animations[this.frame].sprite, -w / 2, -h / 2);
+                sctx.restore();
+            },
+            update: function () {
+                let r = parseFloat(this.animations[0].sprite.width) / 2;
+                let groundCollisionRadius = parseFloat(this.animations[0].sprite.height) / 6;
+                switch (state.curr) {
+                    case state.getReady:
+                        this.rotation = 0;
+                        this.y += frames % 10 == 0 ? Math.sin(frames * RAD) : 0;
+                        this.frame += frames % 10 == 0 ? 1 : 0;
+                        break;
+                    case state.Play:
+                        this.frame += frames % 5 == 0 ? 1 : 0;
+                        this.y += this.speed;
+                        this.setRotation();
+                        this.speed += this.gravity;
+                        // Thêm hạt vệt rải rác phía sau chim
+                        if (frames % 3 == 0) {
+                            this.trail.push({
+                                x: this.x - 5 + Math.random() * 10,
+                                y: this.y - 5 + Math.random() * 10,
+                                alpha: 1.0
+                            });
+                        }
+                        // Giới hạn độ dài vệt
+                        if (this.trail.length > 50) {
+                            this.trail.shift();
+                        }
+                        // Cập nhật vệt
+                        this.trail = this.trail.filter(p => p.alpha > 0.1);
+                        this.trail.forEach(p => p.alpha -= 0.05);
+                        if (this.y + groundCollisionRadius >= gnd.y || this.collisioned()) {
+                            state.curr = state.gameOver;
+                        }
+                        break;
+                    case state.gameOver:
+                        this.frame = 1;
+                        if (this.y + groundCollisionRadius < gnd.y) {
+                            this.y += this.speed;
+                            this.setRotation();
+                            this.speed += this.gravity * 2;
+                        } else {
+                            this.speed = 0;
+                            this.y = gnd.y - groundCollisionRadius;
+                            this.rotation = 90;
+                            if (!SFX.played) {
+                                SFX.die.play();
+                                SFX.played = true;
+                            }
+                        }
+                        break;
+                }
+                this.frame = this.frame % this.animations.length;
+            },
+            flap: function () {
+                // Xử lý khi chim vỗ cánh
+                if (this.y > 0) {
+                    SFX.flap.play();
+                    this.speed = -this.thrust;
+                }
+            },
+            setRotation: function () {
+                // Cài đặt góc xoay của chim
+                if (this.speed <= 0) {
+                    this.rotation = Math.max(-20, (-20 * this.speed) / (-1 * this.thrust));
+                } else if (this.speed > 0) {
+                    this.rotation = Math.min(90, (90 * this.speed) / (this.thrust * 2));
+                }
+            },
+            collisioned: function () {
+                // Kiểm tra va chạm với ống
+                if (!pipe.pipes.length) return false;
+                let bird = this.animations[0].sprite;
+                let x = pipe.pipes[0].x;
+                let y = pipe.pipes[0].y;
+                let r = bird.height / 4.5 + bird.width / 4.5;
+                let roof = y + parseFloat(pipe.top.sprite.height);
+                let floor = roof + pipe.gap;
+                let w = parseFloat(pipe.top.sprite.width);
+                if (this.x + r >= x && this.x - r <= x + w) {
+                    if (this.y - r <= roof || this.y + r >= floor) {
+                        SFX.hit.play();
+                        return true;
+                    }
+                }
+                if (this.x > x + w && pipe.moved) {
+                    UI.score.curr++;
+                    SFX.score.play();
+                    pipe.moved = false;
+                }
+                return false;
+            },
+        };
+        const UI = {
+            getReady: { sprite: new Image() },
+            gameOver: { sprite: new Image() },
+            tap: [{ sprite: new Image() }, { sprite: new Image() }],
+            score: {
+                curr: 0,
+                best: 0,
+            },
+            x: 0,
+            y: 0,
+            tx: 0,
+            ty: 0,
+            frame: 0,
+            draw: function () {
+                switch (state.curr) {
+                    case state.getReady:
+                        this.y = parseFloat(414 - this.getReady.sprite.height) / 2;
+                        this.x = parseFloat(276 - this.getReady.sprite.width) / 2;
+                        this.tx = parseFloat(276 - this.tap[0].sprite.width) / 2;
+                        this.ty =
+                            this.y + this.getReady.sprite.height - this.tap[0].sprite.height;
+                        sctx.drawImage(this.getReady.sprite, this.x, this.y);
+                        sctx.drawImage(this.tap[this.frame].sprite, this.tx, this.ty);
+                        break;
+                    case state.gameOver:
+                        this.y = parseFloat(414 - this.gameOver.sprite.height) / 2;
+                        this.x = parseFloat(276 - this.gameOver.sprite.width) / 2;
+                        this.tx = parseFloat(276 - this.tap[0].sprite.width) / 2;
+                        this.ty =
+                            this.y + this.gameOver.sprite.height - this.tap[0].sprite.height;
+                        sctx.drawImage(this.gameOver.sprite, this.x, this.y);
+                        sctx.drawImage(this.tap[this.frame].sprite, this.tx, this.ty);
+                        break;
+                }
+                this.drawScore();
+                // Vẽ chữ pixel "@Wang2k8" ở góc dưới bên trái
+                // Chữ được mã hóa, khó chỉnh sửa
+                sctx.save();
+                sctx.fillStyle = "#FFFFFF";
+                sctx.strokeStyle = "#000000";
+                sctx.lineWidth = 0.5;
+                sctx.font = "11px kvn-97";
+                sctx.fillText("@Wang2k8", 10, 400);
+                sctx.strokeText("@Wang2k8", 10, 400);
+                sctx.restore();
+            },
+            drawScore: function () {
+                // Vẽ điểm số
+                sctx.save();
+                sctx.fillStyle = "#FFFFFF";
+                sctx.strokeStyle = "#000000";
+                switch (state.curr) {
+                    case state.Play:
+                        sctx.lineWidth = 1;
+                        sctx.font = "24px kvn-97"; // Gấp đôi kích thước chữ
+                        sctx.fillText(this.score.curr, 276 / 2 - 5, 50);
+                        sctx.strokeText(this.score.curr, 276 / 2 - 5, 50);
+                        break;
+                    case state.gameOver:
+                        sctx.lineWidth = 1;
+                        sctx.font = "15px kvn-97";
+                        let sc = `SCORE :     ${this.score.curr}`;
+                        try {
+                            this.score.best = Math.max(
+                                this.score.curr,
+                                localStorage.getItem("best")
+                            );
+                            localStorage.setItem("best", this.score.best);
+                            let bs = `BEST  :     ${this.score.best}`;
+                            sctx.fillText(sc, 276 / 2 - 80, 414 / 2 + 5);
+                            sctx.strokeText(sc, 276 / 2 - 80, 414 / 2 + 5);
+                            sctx.fillText(bs, 276 / 2 - 80, 414 / 2 + 25);
+                            sctx.strokeText(bs, 276 / 2 - 80, 414 / 2 + 25);
+                        } catch (e) {
+                            sctx.fillText(sc, 276 / 2 - 85, 414 / 2 + 15);
+                            sctx.strokeText(sc, 276 / 2 - 85, 414 / 2 + 15);
+                        }
+                        break;
+                }
+                sctx.restore();
+            },
+            update: function () {
+                if (state.curr == state.Play) return;
+                // Cập nhật khung hình cho trạng thái getReady và gameOver
+                this.frame += frames % 10 == 0 ? 1 : 0;
+                this.frame = this.frame % this.tap.length;
+            },
+        };
+
+        gnd.sprite.src = "img/ground.png";
+        bg.sprite.src = "img/BG.png";
+        pipe.top.sprite.src = "img/toppipe.png";
+        pipe.bot.sprite.src = "img/botpipe.png";
+        UI.gameOver.sprite.src = "img/go.png";
+        UI.getReady.sprite.src = "img/getready.png";
+        UI.tap[0].sprite.src = "img/tap/t0.png";
+        UI.tap[1].sprite.src = "img/tap/t1.png";
+        bird.animations[0].sprite.src = "img/bird/b0.png";
+        bird.animations[1].sprite.src = "img/bird/b1.png";
+        bird.animations[2].sprite.src = "img/bird/b2.png";
+        bird.animations[3].sprite.src = "img/bird/b0.png";
+        SFX.start.src = "sfx/start.wav";
+        SFX.flap.src = "sfx/flap.wav";
+        SFX.score.src = "sfx/score.wav";
+        SFX.hit.src = "sfx/hit.wav";
+        SFX.die.src = "sfx/die.wav";
+        SFX.background.src = "sfx/nhac.mp3";
+        SFX.background.loop = true;
+
+        function gameLoop() {
+            update();
+            draw();
+            frames++;
+        }
+
+        function update() {
+            // Cập nhật trạng thái trò chơi
+            bird.update();
+            gnd.update();
+            pipe.update();
+            UI.update();
+        }
+
+        function draw() {
+            // Vẽ toàn bộ khung cảnh
+            sctx.fillStyle = "#4F5955";
+            sctx.fillRect(0, 0, 276, 414);
+            bg.draw();
+            pipe.draw();
+            bird.draw();
+            gnd.draw();
+            UI.draw();
+        }
+
+        setInterval(gameLoop, 20);
+    </script>
+</body>
+</html>
